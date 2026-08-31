@@ -20,9 +20,9 @@ import (
 //
 // Важно: если файл не был удалён через remove(), он останется в системной
 // временной директории (и будет удалён ОС позже, но лучше чистить самим).
-func (c conf) CreateTempFile(objectKey string) (*os.File, func() error, error) {
+func (c conf) CreateTempFile(objectKey string, pattern string) (*os.File, func() error, error) {
 	// сначала создаём временный файл, чтобы при ошибке скачивания не оставлять мусор
-	tmp, err := os.CreateTemp("", "s3-*")
+	tmp, err := os.CreateTemp("", pattern)
 	if err != nil {
 		return nil, nil, fmt.Errorf("не удалось создать временный файл: %v", err)
 	}

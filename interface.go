@@ -9,5 +9,11 @@ type Config interface {
 	GetPresignedUploadURL(objectKey string, contentType *string) (string, error)
 	GetPresignedUploadURLX(objectKey string, contentType *string) string
 
-	CreateTempFile(objectKey string) (*os.File, func() error, error)
+	Upload(key string, file any) error
+
+	Download(key string, to string) error
+
+	Copy(from, to string) error
+
+	CreateTempFile(objectKey string, pattern string) (*os.File, func() error, error)
 }
