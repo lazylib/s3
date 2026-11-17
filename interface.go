@@ -13,6 +13,10 @@ type Config interface {
 
 	Download(key string, to string) error
 
+	List(prefix string, limit int) ([]ObjectInfo, error)
+
+	ListAll(prefix string) ([]ObjectInfo, error)
+
 	Copy(from, to string) error
 
 	CreateTempFile(objectKey string, pattern string) (*os.File, func() error, error)
