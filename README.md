@@ -125,6 +125,16 @@ err := s3Client.Download("reports/2024.pdf", "/tmp/2024.pdf")
 err := s3Client.Copy("reports/2024.pdf", "archive/2024.pdf")
 ```
 
+### Rename (server-side, within one bucket)
+
+There is no rename operation in S3, so the object is copied on the S3 side and
+then the original is deleted:
+
+```go
+err := s3Client.Rename("reports/2024.pdf", "reports/2025.pdf")
+// Renaming to the same key is a no-op.
+```
+
 ### Temp file
 
 Downloads an object into a system temp file and returns it with a `remove` function — perfect for `defer`:
@@ -152,6 +162,8 @@ type Config interface {
 	Upload(key string, file any) error
 	Download(key string, to string) error
 	Copy(from, to string) error
+
+	Rename(oldname, newname string) error
 
 	CreateTempFile(objectKey string, pattern string) (*os.File, func() error, error)
 }

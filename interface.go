@@ -15,5 +15,7 @@ type Config interface {
 
 	Copy(from, to string) error
 
+	Rename(oldname, newname string) error
+
 	CreateTempFile(objectKey string, pattern string) (*os.File, func() error, error)
 }
