@@ -32,6 +32,10 @@ var uploadCmd = &cobra.Command{
 (по умолчанию — пусто), ключ каждого объекта складывается из префикса
 и пути файла относительно директории.
 
+С флагом --skip-exists загружаются только те файлы, которых ещё нет
+в bucket: перед загрузкой одним запросом получается список объектов
+с указанным префиксом, и файлы с существующими ключами пропускаются.
+
 Примеры:
   lazy-s3 upload ... --path ./report.pdf --key backup/report.pdf
   lazy-s3 upload ... --path ./data --key backup -r
@@ -45,7 +49,7 @@ var uploadCmd = &cobra.Command{
 func init() {
 	uploadCmd.Flags().StringVar(&uploadPath, "path", "./", "путь к файлу или директории для загрузки")
 	uploadCmd.Flags().BoolVarP(&uploadRecursive, "recursive", "r", false, "рекурсивная загрузка директории (обязателен, если --path — папка)")
-	uploadCmd.Flags().BoolVar(&uploadSkipExists, "skip-exists", false, "не загружать файлы, которые уже есть в bucket (проверка по ключу)")
+	uploadCmd.Flags().BoolVar(&uploadSkipExists, "skip-exists", false, "не загружать файлы, которые уже есть в bucket (сверка по списку объектов)")
 	uploadCmd.Flags().StringVar(&uploadKey, "key", "", "ключ объекта (для файла) или префикс (для директории); по умолчанию — имя файла / пусто")
 
 	addConnectionFlags(uploadCmd)
@@ -82,7 +86,6 @@ func uploadFile(path, key string, info os.FileInfo) error {
 	conf := newClient()
 
 	if uploadSkipExists && conf.Exists(key) {
-		fmt.Printf("%s -> %s: уже есть в bucket — пропуск\n", path, key)
 		return nil
 	}
 
@@ -94,6 +97,13 @@ func uploadFile(path, key string, info os.FileInfo) error {
 
 	fmt.Println("OK")
 	return nil
+}
+
+// uploadTask — файл, подготовленный к загрузке
+type uploadTask struct {
+	path string
+	key  string
+	size int64
 }
 
 // uploadDir загружает все файлы из директории; key — префикс
@@ -111,41 +121,65 @@ func uploadDir(folder, prefix string) error {
 		return nil
 	}
 
-	fmt.Printf("Загрузка %d файлов из %q в bucket %q (prefix %q)\n\n", len(files), folder, flagBucket, prefix)
-
-	// проход по всем файлам и загрузка через conf
-	var (
-		loaded  int
-		skipped int
-		failed  int
-		total   int64
-	)
-
-	for i, path := range files {
-		// ключ объекта — сумма prefix и пути файла относительно folder
+	// готовим задачи: ключ объекта — сумма prefix и пути файла относительно folder
+	tasks := make([]uploadTask, 0, len(files))
+	failed := 0
+	for _, path := range files {
 		rel, err := filepath.Rel(folder, path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[%d/%d] %s — ошибка: %v\n", i+1, len(files), path, err)
+			fmt.Fprintf(os.Stderr, "%s — ошибка: %v\n", path, err)
 			failed++
 			continue
 		}
 
-		key := makeKey(prefix, rel)
-
-		size := int64(0)
+		task := uploadTask{path: path, key: makeKey(prefix, rel)}
 		if st, statErr := os.Stat(path); statErr == nil {
-			size = st.Size()
+			task.size = st.Size()
+		}
+		tasks = append(tasks, task)
+	}
+
+	// с --skip-exists одним запросом получаем список объектов bucket
+	// и оставляем только те файлы, которых ещё нет в S3
+	skipped := 0
+	if uploadSkipExists {
+		objects, err := conf.ListAll(strings.Trim(prefix, "/"))
+		if err != nil {
+			return err
 		}
 
-		fmt.Printf("[%d/%d] %s -> %s (%s) ... ", i+1, len(files), path, key, humanSize(size))
-
-		if uploadSkipExists && conf.Exists(key) {
-			fmt.Println("уже есть в bucket — пропуск")
-			skipped++
-			continue
+		existing := make(map[string]struct{}, len(objects))
+		for _, obj := range objects {
+			existing[obj.Key] = struct{}{}
 		}
 
-		if err := conf.Upload(key, path); err != nil {
+		pending := make([]uploadTask, 0, len(tasks))
+		for _, t := range tasks {
+			if _, ok := existing[t.key]; ok {
+				skipped++
+				continue
+			}
+			pending = append(pending, t)
+		}
+		tasks = pending
+	}
+
+	if len(tasks) > 0 {
+		fmt.Printf("Загрузка %d файлов из %q в bucket %q (prefix %q)\n\n", len(tasks), folder, flagBucket, prefix)
+	} else if uploadSkipExists {
+		fmt.Printf("Все файлы (%d) уже есть в bucket %q (prefix %q) — загружать нечего\n", skipped, flagBucket, strings.Trim(prefix, "/"))
+	}
+
+	// загрузка подготовленных задач
+	var (
+		loaded int
+		total  int64
+	)
+
+	for i, t := range tasks {
+		fmt.Printf("[%d/%d] %s -> %s (%s) ... ", i+1, len(tasks), t.path, t.key, humanSize(t.size))
+
+		if err := conf.Upload(t.key, t.path); err != nil {
 			fmt.Printf("ОШИБКА: %v\n", err)
 			failed++
 			continue
@@ -153,7 +187,7 @@ func uploadDir(folder, prefix string) error {
 
 		fmt.Println("OK")
 		loaded++
-		total += size
+		total += t.size
 	}
 
 	fmt.Printf("\nИтог: загружено %d, пропущено %d, с ошибками %d, объём %s\n", loaded, skipped, failed, humanSize(total))

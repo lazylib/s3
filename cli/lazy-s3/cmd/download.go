@@ -14,9 +14,10 @@ import (
 
 // флаги команды download
 var (
-	downloadKey     string
-	downloadPath    string
-	downloadWorkers int
+	downloadKey        string
+	downloadPath       string
+	downloadWorkers    int
+	downloadSkipExists bool
 )
 
 // downloadCmd скачивает объект или группу объектов из bucket
@@ -32,10 +33,14 @@ var downloadCmd = &cobra.Command{
 
 Если --key не передан — скачивается весь bucket.
 
+С флагом --skip-exists объекты, для которых уже есть локальный файл
+по целевому пути, пропускаются — скачиваются только отсутствующие.
+
 Примеры:
   lazy-s3 download ... --key backup/report.pdf --path ./report.pdf
   lazy-s3 download ... --key backup/ --path ./backup
-  lazy-s3 download ... --path ./dump`,
+  lazy-s3 download ... --path ./dump
+  lazy-s3 download ... --key backup/ --path ./dump --workers 4 --skip-exists`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runDownload(downloadKey, downloadPath, downloadWorkers)
 	},
@@ -45,6 +50,7 @@ func init() {
 	downloadCmd.Flags().StringVar(&downloadKey, "key", "", "ключ объекта или префикс (папка) в bucket; пусто — весь bucket")
 	downloadCmd.Flags().StringVar(&downloadPath, "path", "./", "локальный путь для сохранения")
 	downloadCmd.Flags().IntVar(&downloadWorkers, "workers", 1, "количество параллельных загрузок при скачивании нескольких объектов")
+	downloadCmd.Flags().BoolVar(&downloadSkipExists, "skip-exists", false, "не скачивать объекты, которые уже есть локально (по наличию файла)")
 
 	addConnectionFlags(downloadCmd)
 }
@@ -64,6 +70,14 @@ func runDownload(key, localPath string, workers int) error {
 			if strings.HasSuffix(localPath, "/") || localPath == "" {
 				localPath = path.Join(localPath, path.Base(key))
 			}
+
+			// --skip-exists: файл уже есть локально — пропускаем без лога
+			if downloadSkipExists {
+				if _, err := os.Stat(localPath); err == nil {
+					return nil
+				}
+			}
+
 			if err := conf.Download(key, localPath); err != nil {
 				return err
 			}
@@ -126,8 +140,30 @@ func downloadMany(prefix, localPath string, workers int) error {
 	}
 	target = strings.TrimSuffix(target, "/")
 
-	fmt.Printf("Скачивание %d объектов из bucket %q (prefix %q) в %q\n\n",
-		len(files), flagBucket, prefix, target)
+	// с --skip-exists пропускаем объекты, которые уже есть локально:
+	// файл по целевому пути существует — скачивать его не нужно
+	skipped := 0
+	if downloadSkipExists {
+		pending := make([]s3.ObjectInfo, 0, len(files))
+		for _, obj := range files {
+			rel := strings.TrimPrefix(obj.Key, prefix)
+			dst := filepath.Join(target, filepath.FromSlash(rel))
+			if _, err := os.Stat(dst); err == nil {
+				skipped++
+				continue
+			}
+			pending = append(pending, obj)
+		}
+		files = pending
+	}
+
+	if len(files) > 0 {
+		fmt.Printf("Скачивание %d объектов из bucket %q (prefix %q) в %q\n\n",
+			len(files), flagBucket, prefix, target)
+	} else if downloadSkipExists {
+		fmt.Printf("Все объекты (%d) уже есть локально в bucket %q (prefix %q) — скачивать нечего\n",
+			skipped, flagBucket, prefix)
+	}
 
 	results := make(chan downloadResult, len(files))
 
@@ -191,7 +227,7 @@ func downloadMany(prefix, localPath string, workers int) error {
 		fmt.Printf("\nПропущено папок-маркеров: %d\n", skippedDirs)
 	}
 
-	fmt.Printf("Итог: скачано %d, с ошибками %d, объём %s\n", downloaded, failed, humanSize(total))
+	fmt.Printf("Итог: скачано %d, пропущено %d, с ошибками %d, объём %s\n", downloaded, skipped, failed, humanSize(total))
 
 	if len(failures) > 0 {
 		fmt.Fprintf(os.Stderr, "\nНе скачались (%d):\n", len(failures))
