@@ -11,11 +11,52 @@ A small, convenient Go wrapper around the AWS S3 SDK v2 (`aws-sdk-go-v2`) for co
 - Server-side `Copy` inside a bucket (no data transfer through your app)
 - `CreateTempFile` for safe "download to temp file" flows with a cleanup function
 - Panic-free variants (`...X` suffix) that return the URL directly or panic
+- Ships with a simple CLI utility (`lazy-s3`) for uploading/downloading files from the terminal
 
 ## Installation
 
 ```bash
 go get github.com/lazylib/s3
+```
+
+## CLI utility
+
+The library ships with a simple command-line utility built on top of it — `lazy-s3`. Install it with:
+
+```bash
+go install github.com/lazylib/s3/cli/lazy-s3@latest
+```
+
+Available commands:
+
+- `upload` — uploads a file or a whole directory (with `-r`) to a bucket
+- `download` — downloads a single object, a "folder" (all objects with a prefix), or the entire bucket
+- `ls` — lists bucket objects by prefix
+
+All commands accept common connection flags (`--url`, `--access`, `--secret`, `--bucket`, `--region`, `--pathstyle`).
+
+Examples:
+
+```bash
+# List objects in a bucket
+lazy-s3 ls --url https://s3.example.com --access KEY --secret SECRET \
+  --bucket my-bucket --prefix backup/ --limit 50
+
+# Upload a single file
+lazy-s3 upload --url https://s3.example.com --access KEY --secret SECRET \
+  --bucket my-bucket --path ./report.pdf --key backup/report.pdf
+
+# Upload a directory recursively
+lazy-s3 upload --url https://s3.example.com --access KEY --secret SECRET \
+  --bucket my-bucket --path ./data --key backup -r
+
+# Download a single object
+lazy-s3 download --url https://s3.example.com --access KEY --secret SECRET \
+  --bucket my-bucket --key backup/report.pdf --path ./report.pdf
+
+# Download everything under a prefix, 4 parallel workers
+lazy-s3 download --url https://s3.example.com --access KEY --secret SECRET \
+  --bucket my-bucket --key backup/ --path ./dump --workers 4
 ```
 
 ## Usage
