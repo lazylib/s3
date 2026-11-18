@@ -12,9 +12,10 @@ import (
 
 // флаги команды upload
 var (
-	uploadPath      string
-	uploadKey       string
-	uploadRecursive bool
+	uploadPath       string
+	uploadKey        string
+	uploadRecursive  bool
+	uploadSkipExists bool
 )
 
 // uploadCmd загружает файл или директорию в bucket
@@ -34,7 +35,8 @@ var uploadCmd = &cobra.Command{
 Примеры:
   lazy-s3 upload ... --path ./report.pdf --key backup/report.pdf
   lazy-s3 upload ... --path ./data --key backup -r
-  lazy-s3 upload ... --path ./data -r`,
+  lazy-s3 upload ... --path ./data -r
+  lazy-s3 upload ... --path ./data --key backup -r --skip-exists`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runUpload(uploadPath, uploadKey, uploadRecursive)
 	},
@@ -43,6 +45,7 @@ var uploadCmd = &cobra.Command{
 func init() {
 	uploadCmd.Flags().StringVar(&uploadPath, "path", "./", "путь к файлу или директории для загрузки")
 	uploadCmd.Flags().BoolVarP(&uploadRecursive, "recursive", "r", false, "рекурсивная загрузка директории (обязателен, если --path — папка)")
+	uploadCmd.Flags().BoolVar(&uploadSkipExists, "skip-exists", false, "не загружать файлы, которые уже есть в bucket (проверка по ключу)")
 	uploadCmd.Flags().StringVar(&uploadKey, "key", "", "ключ объекта (для файла) или префикс (для директории); по умолчанию — имя файла / пусто")
 
 	addConnectionFlags(uploadCmd)
@@ -78,6 +81,11 @@ func uploadFile(path, key string, info os.FileInfo) error {
 
 	conf := newClient()
 
+	if uploadSkipExists && conf.Exists(key) {
+		fmt.Printf("%s -> %s: уже есть в bucket — пропуск\n", path, key)
+		return nil
+	}
+
 	fmt.Printf("Загрузка %s -> %s (%s) ... ", path, key, humanSize(info.Size()))
 
 	if err := conf.Upload(key, path); err != nil {
@@ -107,9 +115,10 @@ func uploadDir(folder, prefix string) error {
 
 	// проход по всем файлам и загрузка через conf
 	var (
-		loaded int
-		failed int
-		total  int64
+		loaded  int
+		skipped int
+		failed  int
+		total   int64
 	)
 
 	for i, path := range files {
@@ -130,6 +139,12 @@ func uploadDir(folder, prefix string) error {
 
 		fmt.Printf("[%d/%d] %s -> %s (%s) ... ", i+1, len(files), path, key, humanSize(size))
 
+		if uploadSkipExists && conf.Exists(key) {
+			fmt.Println("уже есть в bucket — пропуск")
+			skipped++
+			continue
+		}
+
 		if err := conf.Upload(key, path); err != nil {
 			fmt.Printf("ОШИБКА: %v\n", err)
 			failed++
@@ -141,7 +156,7 @@ func uploadDir(folder, prefix string) error {
 		total += size
 	}
 
-	fmt.Printf("\nИтог: загружено %d, с ошибками %d, объём %s\n", loaded, failed, humanSize(total))
+	fmt.Printf("\nИтог: загружено %d, пропущено %d, с ошибками %d, объём %s\n", loaded, skipped, failed, humanSize(total))
 
 	if failed > 0 {
 		os.Exit(1)
