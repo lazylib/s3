@@ -19,6 +19,10 @@ type Config interface {
 
 	Copy(from, to string) error
 
+	Delete(key string) error
+
+	Exists(key string) bool
+
 	Rename(oldname, newname string) error
 
 	CreateTempFile(objectKey string, pattern string) (*os.File, func() error, error)

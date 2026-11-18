@@ -9,6 +9,8 @@ A small, convenient Go wrapper around the AWS S3 SDK v2 (`aws-sdk-go-v2`) for co
 - Direct `Upload` that accepts a file path, `[]byte`, or `io.Reader`
 - `Download` to a local path (creates parent directories automatically)
 - Server-side `Copy` inside a bucket (no data transfer through your app)
+- `Delete` of an object by key
+- `Rename` (server-side copy + delete)
 - `CreateTempFile` for safe "download to temp file" flows with a cleanup function
 - Panic-free variants (`...X` suffix) that return the URL directly or panic
 - Ships with a simple CLI utility (`lazy-s3`) for uploading/downloading files from the terminal
@@ -32,6 +34,7 @@ Available commands:
 - `upload` — uploads a file or a whole directory (with `-r`) to a bucket
 - `download` — downloads a single object, a "folder" (all objects with a prefix), or the entire bucket
 - `ls` — lists bucket objects by prefix
+- `rm` — deletes an object by key
 
 All commands accept common connection flags (`--url`, `--access`, `--secret`, `--bucket`, `--region`, `--pathstyle`).
 
@@ -57,6 +60,9 @@ lazy-s3 download --url https://s3.example.com --access KEY --secret SECRET \
 # Download everything under a prefix, 4 parallel workers
 lazy-s3 download --url https://s3.example.com --access KEY --secret SECRET \
   --bucket my-bucket --key backup/ --path ./dump --workers 4
+# Delete an object
+lazy-s3 rm --url https://s3.example.com --access KEY --secret SECRET \
+  --bucket my-bucket --key backup/report.pdf
 ```
 
 ## Usage
@@ -166,6 +172,12 @@ err := s3Client.Download("reports/2024.pdf", "/tmp/2024.pdf")
 err := s3Client.Copy("reports/2024.pdf", "archive/2024.pdf")
 ```
 
+### Delete
+
+```go
+err := s3Client.Delete("reports/2024.pdf")
+```
+
 ### Rename (server-side, within one bucket)
 
 There is no rename operation in S3, so the object is copied on the S3 side and
@@ -203,6 +215,8 @@ type Config interface {
 	Upload(key string, file any) error
 	Download(key string, to string) error
 	Copy(from, to string) error
+
+	Delete(key string) error
 
 	Rename(oldname, newname string) error
 

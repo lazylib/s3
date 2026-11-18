@@ -32,4 +32,5 @@ func init() {
 	rootCmd.AddCommand(uploadCmd)
 	rootCmd.AddCommand(downloadCmd)
 	rootCmd.AddCommand(lsCmd)
+	rootCmd.AddCommand(rmCmd)
 }
