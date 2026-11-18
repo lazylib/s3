@@ -25,6 +25,12 @@ type Settings struct {
 
 	Upload   *LinkSettings
 	Download *LinkSettings
+
+	// DisableChecksumWarningLog отключает предупреждение SDK
+	// «Response has no supported checksum. Not validating response payload»,
+	// которое появляется при скачивании из хранилищ, не возвращающих
+	// контрольные суммы (это не ошибка, файл скачивается полностью).
+	DisableChecksumWarningLog bool
 }
 
 type conf struct {
@@ -54,6 +60,7 @@ func New(settings Settings) Config {
 
 	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = settings.UsePathStyle
+		o.DisableLogOutputChecksumValidationSkipped = settings.DisableChecksumWarningLog
 	})
 
 	if settings.Upload == nil {
